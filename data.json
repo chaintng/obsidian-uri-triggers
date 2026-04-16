@@ -1,0 +1,20 @@
+{
+  "triggers": [
+    {
+      "name": "New trigger",
+      "event": "file-open",
+      "uriTemplate": "obsidian://",
+      "enabled": true,
+      "pathIncludes": "",
+      "id": "81e1db14-020f-4aeb-aa28-a0d630df79bd"
+    },
+    {
+      "name": "New trigger",
+      "event": "file-open",
+      "uriTemplate": "obsidian://",
+      "enabled": true,
+      "pathIncludes": "",
+      "id": "6e1852b4-bfff-4114-b871-e19c4aa0460a"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "id": "uri-triggers",
+  "name": "URI Triggers",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Run Obsidian URIs when vault and workspace events happen.",
+  "author": "chaintng",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}
