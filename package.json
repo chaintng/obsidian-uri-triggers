@@ -4,6 +4,11 @@
   "private": true,
   "description": "Obsidian plugin for running Obsidian URIs from configurable vault and workspace triggers.",
   "license": "MIT",
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin",
+    "obsidian-md"
+  ],
   "scripts": {
     "build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs"
