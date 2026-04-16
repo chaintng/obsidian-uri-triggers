@@ -13,6 +13,8 @@ URI Triggers is an Obsidian plugin that executes configured Obsidian URIs when v
 
 ## URI Templates
 
+The settings page shows a compact list of triggers. Use **Add** or **Edit** to open the trigger form popup.
+
 Each trigger stores one URI template. The plugin replaces these variables before opening the URI:
 
 - `{{event}}`

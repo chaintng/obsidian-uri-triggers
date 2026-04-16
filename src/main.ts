@@ -1,5 +1,6 @@
 import {
   App,
+  Modal,
   Notice,
   Plugin,
   PluginSettingTab,
@@ -49,6 +50,8 @@ const DEFAULT_TRIGGER: Omit<UriTrigger, "id"> = {
   enabled: true,
   pathIncludes: ""
 };
+
+type TriggerModalMode = "create" | "edit";
 
 export default class UriTriggersPlugin extends Plugin {
   settings: UriTriggerSettings = DEFAULT_SETTINGS;
@@ -103,33 +106,33 @@ export default class UriTriggersPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
-  createTrigger(): UriTrigger {
-    const trigger: UriTrigger = {
+  createDefaultTrigger(): UriTrigger {
+    return {
       ...DEFAULT_TRIGGER,
       id: crypto.randomUUID()
     };
+  }
 
-    this.settings.triggers.push(trigger);
-    return trigger;
+  async saveTrigger(triggerToSave: UriTrigger): Promise<void> {
+    const existingTrigger = this.settings.triggers.find((trigger) => trigger.id === triggerToSave.id);
+
+    if (existingTrigger) {
+      this.settings.triggers = this.settings.triggers.map((trigger) => {
+        if (trigger.id === triggerToSave.id) {
+          return triggerToSave;
+        }
+
+        return trigger;
+      });
+    } else {
+      this.settings.triggers = [...this.settings.triggers, triggerToSave];
+    }
+
+    await this.saveSettings();
   }
 
   async removeTrigger(id: string): Promise<void> {
     this.settings.triggers = this.settings.triggers.filter((trigger) => trigger.id !== id);
-    await this.saveSettings();
-  }
-
-  async updateTrigger(id: string, patch: Partial<Omit<UriTrigger, "id">>): Promise<void> {
-    this.settings.triggers = this.settings.triggers.map((trigger) => {
-      if (trigger.id !== id) {
-        return trigger;
-      }
-
-      return {
-        ...trigger,
-        ...patch
-      };
-    });
-
     await this.saveSettings();
   }
 
@@ -218,17 +221,28 @@ class UriTriggersSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Add trigger")
-      .setDesc("Create a new URI trigger.")
+      .setDesc("Open the trigger form.")
       .addButton((button) => {
         button
           .setButtonText("Add")
           .setCta()
-          .onClick(async () => {
-            this.plugin.createTrigger();
-            await this.plugin.saveSettings();
-            this.display();
+          .onClick(() => {
+            new UriTriggerModal(
+              this.app,
+              this.plugin.createDefaultTrigger(),
+              "create",
+              async (trigger) => {
+                await this.plugin.saveTrigger(trigger);
+                this.display();
+              }
+            ).open();
           });
       });
+
+    if (this.plugin.settings.triggers.length === 0) {
+      containerEl.createEl("p", { text: "No triggers yet." });
+      return;
+    }
 
     for (const trigger of this.plugin.settings.triggers) {
       this.renderTrigger(containerEl, trigger);
@@ -236,66 +250,30 @@ class UriTriggersSettingTab extends PluginSettingTab {
   }
 
   private renderTrigger(containerEl: HTMLElement, trigger: UriTrigger): void {
-    containerEl.createEl("h3", { text: trigger.name || "Unnamed trigger" });
-
     new Setting(containerEl)
-      .setName("Enabled")
+      .setName(trigger.name || "Unnamed trigger")
+      .setDesc(buildTriggerDescription(trigger))
       .addToggle((toggle) => {
         toggle
           .setValue(trigger.enabled)
-          .onChange((enabled) => this.plugin.updateTrigger(trigger.id, { enabled }));
-      });
-
-    new Setting(containerEl)
-      .setName("Name")
-      .addText((text) => {
-        text
-          .setPlaceholder("Open daily note")
-          .setValue(trigger.name)
-          .onChange((name) => this.plugin.updateTrigger(trigger.id, { name }));
-      });
-
-    new Setting(containerEl)
-      .setName("Event")
-      .addDropdown((dropdown) => {
-        for (const eventName of TRIGGER_EVENTS) {
-          dropdown.addOption(eventName, humanizeEvent(eventName));
-        }
-
-        dropdown
-          .setValue(trigger.event)
-          .onChange((eventName) => {
-            if (!isTriggerEvent(eventName)) {
-              return;
-            }
-
-            return this.plugin.updateTrigger(trigger.id, { event: eventName });
+          .onChange(async (enabled) => {
+            await this.plugin.saveTrigger({
+              ...trigger,
+              enabled
+            });
+            this.display();
           });
-      });
-
-    new Setting(containerEl)
-      .setName("Path filter")
-      .setDesc("Optional. Only run when the file path contains this text.")
-      .addText((text) => {
-        text
-          .setPlaceholder("Projects/")
-          .setValue(trigger.pathIncludes)
-          .onChange((pathIncludes) => this.plugin.updateTrigger(trigger.id, { pathIncludes }));
-      });
-
-    new Setting(containerEl)
-      .setName("Obsidian URI")
-      .setDesc("Supports {{event}}, {{path}}, {{previousPath}}, {{basename}}, {{name}}, and {{extension}}.")
-      .addTextArea((text) => {
-        text
-          .setPlaceholder("obsidian://advanced-uri?vault=MyVault&commandid=...")
-          .setValue(trigger.uriTemplate)
-          .onChange((uriTemplate) => this.plugin.updateTrigger(trigger.id, { uriTemplate }));
-      });
-
-    new Setting(containerEl)
-      .setName("Delete trigger")
-      .setDesc("Remove this trigger permanently.")
+      })
+      .addButton((button) => {
+        button
+          .setButtonText("Edit")
+          .onClick(() => {
+            new UriTriggerModal(this.app, trigger, "edit", async (updatedTrigger) => {
+              await this.plugin.saveTrigger(updatedTrigger);
+              this.display();
+            }).open();
+          });
+      })
       .addButton((button) => {
         button
           .setButtonText("Delete")
@@ -305,6 +283,143 @@ class UriTriggersSettingTab extends PluginSettingTab {
             this.display();
           });
       });
+  }
+}
+
+class UriTriggerModal extends Modal {
+  private trigger: UriTrigger;
+
+  constructor(
+    app: App,
+    trigger: UriTrigger,
+    private readonly mode: TriggerModalMode,
+    private readonly onSubmit: (trigger: UriTrigger) => Promise<void>
+  ) {
+    super(app);
+    this.trigger = { ...trigger };
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", {
+      text: this.mode === "create" ? "Add URI trigger" : "Edit URI trigger"
+    });
+
+    new Setting(contentEl)
+      .setName("Name")
+      .addText((text) => {
+        text
+          .setPlaceholder("Open daily note")
+          .setValue(this.trigger.name)
+          .onChange((name) => {
+            this.trigger = {
+              ...this.trigger,
+              name
+            };
+          });
+      });
+
+    new Setting(contentEl)
+      .setName("Enabled")
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.trigger.enabled)
+          .onChange((enabled) => {
+            this.trigger = {
+              ...this.trigger,
+              enabled
+            };
+          });
+      });
+
+    new Setting(contentEl)
+      .setName("Event")
+      .addDropdown((dropdown) => {
+        for (const eventName of TRIGGER_EVENTS) {
+          dropdown.addOption(eventName, humanizeEvent(eventName));
+        }
+
+        dropdown
+          .setValue(this.trigger.event)
+          .onChange((eventName) => {
+            if (!isTriggerEvent(eventName)) {
+              return;
+            }
+
+            this.trigger = {
+              ...this.trigger,
+              event: eventName
+            };
+          });
+      });
+
+    new Setting(contentEl)
+      .setName("Path filter")
+      .setDesc("Optional. Only run when the file path contains this text.")
+      .addText((text) => {
+        text
+          .setPlaceholder("Projects/")
+          .setValue(this.trigger.pathIncludes)
+          .onChange((pathIncludes) => {
+            this.trigger = {
+              ...this.trigger,
+              pathIncludes
+            };
+          });
+      });
+
+    new Setting(contentEl)
+      .setName("Obsidian URI")
+      .setDesc("Supports {{event}}, {{path}}, {{previousPath}}, {{basename}}, {{name}}, and {{extension}}.")
+      .addTextArea((text) => {
+        text
+          .setPlaceholder("obsidian://advanced-uri?vault=MyVault&commandid=...")
+          .setValue(this.trigger.uriTemplate)
+          .onChange((uriTemplate) => {
+            this.trigger = {
+              ...this.trigger,
+              uriTemplate
+            };
+          });
+      });
+
+    new Setting(contentEl)
+      .addButton((button) => {
+        button
+          .setButtonText("Cancel")
+          .onClick(() => {
+            this.close();
+          });
+      })
+      .addButton((button) => {
+        button
+          .setButtonText("Save")
+          .setCta()
+          .onClick(async () => {
+            if (!this.trigger.name.trim()) {
+              new Notice("Trigger name is required.");
+              return;
+            }
+
+            if (!this.trigger.uriTemplate.trim()) {
+              new Notice("Obsidian URI is required.");
+              return;
+            }
+
+            await this.onSubmit({
+              ...this.trigger,
+              name: this.trigger.name.trim(),
+              pathIncludes: this.trigger.pathIncludes.trim(),
+              uriTemplate: this.trigger.uriTemplate.trim()
+            });
+            this.close();
+          });
+      });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
   }
 }
 
@@ -341,4 +456,11 @@ function humanizeEvent(eventName: TriggerEvent): string {
 
 function isTriggerEvent(eventName: string): eventName is TriggerEvent {
   return TRIGGER_EVENTS.some((triggerEvent) => triggerEvent === eventName);
+}
+
+function buildTriggerDescription(trigger: UriTrigger): string {
+  const state = trigger.enabled ? "Enabled" : "Disabled";
+  const pathFilter = trigger.pathIncludes ? `Path contains "${trigger.pathIncludes}"` : "All paths";
+
+  return `${humanizeEvent(trigger.event)} - ${state} - ${pathFilter}`;
 }
