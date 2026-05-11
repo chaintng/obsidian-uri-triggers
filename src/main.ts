@@ -199,8 +199,12 @@ export default class UriTriggersPlugin extends Plugin {
     });
 
     for (const trigger of triggers) {
-      const uri = buildUri(trigger.uriTemplate, context);
-      openObsidianUri(uri, trigger.name);
+      const uriTemplates = parseUriTemplates(trigger.uriTemplate);
+
+      for (const template of uriTemplates) {
+        const uri = buildUri(template, context);
+        openObsidianUri(uri, trigger.name);
+      }
     }
   }
 }
@@ -371,7 +375,9 @@ class UriTriggerModal extends Modal {
 
     new Setting(contentEl)
       .setName("Obsidian URI")
-      .setDesc("Supports {{event}}, {{path}}, {{previousPath}}, {{basename}}, {{name}}, and {{extension}}.")
+      .setDesc(
+        "Each line runs one URI action. Supports {{event}}, {{path}}, {{previousPath}}, {{basename}}, {{name}}, and {{extension}}."
+      )
       .addTextArea((text) => {
         text
           .setPlaceholder("obsidian://advanced-uri?vault=MyVault&commandid=...")
@@ -402,7 +408,7 @@ class UriTriggerModal extends Modal {
               return;
             }
 
-            if (!this.trigger.uriTemplate.trim()) {
+            if (parseUriTemplates(this.trigger.uriTemplate).length === 0) {
               new Notice("Obsidian URI is required.");
               return;
             }
@@ -411,7 +417,7 @@ class UriTriggerModal extends Modal {
               ...this.trigger,
               name: this.trigger.name.trim(),
               pathIncludes: this.trigger.pathIncludes.trim(),
-              uriTemplate: this.trigger.uriTemplate.trim()
+              uriTemplate: parseUriTemplates(this.trigger.uriTemplate).join("\n")
             });
             this.close();
           });
@@ -436,6 +442,13 @@ function buildUri(template: string, context: TriggerContext): string {
   return Object.entries(replacements).reduce((uri, [key, value]) => {
     return uri.replaceAll(`{{${key}}}`, encodeURIComponent(value));
   }, template);
+}
+
+function parseUriTemplates(rawTemplates: string): string[] {
+  return rawTemplates
+    .split("\n")
+    .map((template) => template.trim())
+    .filter((template) => template.length > 0);
 }
 
 function openObsidianUri(uri: string, triggerName: string): void {
